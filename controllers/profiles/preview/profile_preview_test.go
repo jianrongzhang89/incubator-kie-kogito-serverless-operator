@@ -49,7 +49,7 @@ func Test_Reconciler_ProdCustomPod(t *testing.T) {
 	client := test.NewSonataFlowClientBuilder().
 		WithRuntimeObjects(workflow, build, platform).
 		WithStatusSubresource(workflow, build, platform).Build()
-	_, err := NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	_, err := NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 
 	// Let's check for the right creation of the workflow (one CM volume, one container with a custom image)
@@ -73,7 +73,7 @@ func Test_reconcilerProdBuildConditions(t *testing.T) {
 		WithRuntimeObjects(workflow, platform).
 		WithStatusSubresource(workflow, platform, &operatorapi.SonataFlowBuild{}).Build()
 
-	result, err := NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err := NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 
 	assert.NotNil(t, result.RequeueAfter)
@@ -81,7 +81,7 @@ func Test_reconcilerProdBuildConditions(t *testing.T) {
 	assert.False(t, workflow.Status.IsReady())
 
 	// still building
-	result, err = NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err = NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 	assert.Equal(t, requeueWhileWaitForBuild, result.RequeueAfter)
 	assert.True(t, workflow.Status.IsBuildRunningOrUnknown())
@@ -94,7 +94,7 @@ func Test_reconcilerProdBuildConditions(t *testing.T) {
 	assert.NoError(t, client.Status().Update(context.TODO(), build))
 
 	// last reconciliation cycle waiting for build
-	result, err = NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err = NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 	assert.Equal(t, requeueWhileWaitForBuild, result.RequeueAfter)
 	assert.False(t, workflow.Status.IsBuildRunningOrUnknown())
@@ -102,7 +102,7 @@ func Test_reconcilerProdBuildConditions(t *testing.T) {
 	assert.Equal(t, api.WaitingForDeploymentReason, workflow.Status.GetTopLevelCondition().Reason)
 
 	// now we create the objects
-	result, err = NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err = NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 	assert.False(t, workflow.Status.IsBuildRunningOrUnknown())
 	assert.False(t, workflow.Status.IsReady())
@@ -120,7 +120,7 @@ func Test_reconcilerProdBuildConditions(t *testing.T) {
 	err = client.Status().Update(context.TODO(), deployment)
 	assert.NoError(t, err)
 
-	result, err = NewProfileReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err = NewProfileReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 	assert.False(t, workflow.Status.IsBuildRunningOrUnknown())
 	assert.True(t, workflow.Status.IsReady())

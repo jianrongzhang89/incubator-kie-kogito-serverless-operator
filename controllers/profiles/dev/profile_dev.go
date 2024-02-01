@@ -20,6 +20,8 @@
 package dev
 
 import (
+	"context"
+
 	"github.com/apache/incubator-kie-kogito-serverless-operator/api/metadata"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/discovery"
 	"k8s.io/client-go/rest"
@@ -43,12 +45,13 @@ func (d developmentProfile) GetProfile() metadata.ProfileType {
 	return metadata.DevProfile
 }
 
-func NewProfileReconciler(client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
+func NewProfileReconciler(ctx context.Context, client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
 	support := &common.StateSupport{
 		C:        client,
 		Cfg:      cfg,
 		Catalog:  discovery.NewServiceCatalogForConfig(client, cfg),
 		Recorder: recorder,
+		Context:  ctx,
 	}
 
 	var ensurers *objectEnsurers
@@ -76,23 +79,23 @@ func NewProfileReconciler(client client.Client, cfg *rest.Config, recorder recor
 
 func newObjectEnsurers(support *common.StateSupport) *objectEnsurers {
 	return &objectEnsurers{
-		deployment:            common.NewObjectEnsurerWithPlatform(support.C, deploymentCreator),
-		service:               common.NewObjectEnsurer(support.C, serviceCreator),
+		deployment:            common.NewObjectEnsurerWithPlatform(support, deploymentCreator),
+		service:               common.NewObjectEnsurer(support, serviceCreator),
 		network:               common.NewNoopObjectEnsurer(),
-		definitionConfigMap:   common.NewObjectEnsurer(support.C, workflowDefConfigMapCreator),
-		userPropsConfigMap:    common.NewObjectEnsurer(support.C, common.UserPropsConfigMapCreator),
-		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support.C, common.ManagedPropsConfigMapCreator),
+		definitionConfigMap:   common.NewObjectEnsurer(support, workflowDefConfigMapCreator),
+		userPropsConfigMap:    common.NewObjectEnsurer(support, common.UserPropsConfigMapCreator),
+		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support, common.ManagedPropsConfigMapCreator),
 	}
 }
 
 func newObjectEnsurersOpenShift(support *common.StateSupport) *objectEnsurers {
 	return &objectEnsurers{
-		deployment:            common.NewObjectEnsurerWithPlatform(support.C, deploymentCreator),
-		service:               common.NewObjectEnsurer(support.C, serviceCreator),
-		network:               common.NewObjectEnsurer(support.C, common.OpenShiftRouteCreator),
-		definitionConfigMap:   common.NewObjectEnsurer(support.C, workflowDefConfigMapCreator),
-		userPropsConfigMap:    common.NewObjectEnsurer(support.C, common.UserPropsConfigMapCreator),
-		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support.C, common.ManagedPropsConfigMapCreator),
+		deployment:            common.NewObjectEnsurerWithPlatform(support, deploymentCreator),
+		service:               common.NewObjectEnsurer(support, serviceCreator),
+		network:               common.NewObjectEnsurer(support, common.OpenShiftRouteCreator),
+		definitionConfigMap:   common.NewObjectEnsurer(support, workflowDefConfigMapCreator),
+		userPropsConfigMap:    common.NewObjectEnsurer(support, common.UserPropsConfigMapCreator),
+		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support, common.ManagedPropsConfigMapCreator),
 	}
 }
 

@@ -20,9 +20,12 @@
 package factory
 
 import (
+	"context"
+
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/gitops"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/preview"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/log"
+
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -34,7 +37,7 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/dev"
 )
 
-type reconcilerBuilder func(client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler
+type reconcilerBuilder func(ctx context.Context, client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler
 
 var profileBuilders = map[metadata.ProfileType]reconcilerBuilder{
 	metadata.PreviewProfile: preview.NewProfileReconciler,
@@ -62,6 +65,6 @@ func profileBuilder(workflow *operatorapi.SonataFlow) reconcilerBuilder {
 }
 
 // NewReconciler creates a new ProfileReconciler based on the given workflow and context.
-func NewReconciler(client client.Client, cfg *rest.Config, recorder record.EventRecorder, workflow *operatorapi.SonataFlow) profiles.ProfileReconciler {
-	return profileBuilder(workflow)(client, cfg, recorder)
+func NewReconciler(ctx context.Context, client client.Client, cfg *rest.Config, recorder record.EventRecorder, workflow *operatorapi.SonataFlow) profiles.ProfileReconciler {
+	return profileBuilder(workflow)(ctx, client, cfg, recorder)
 }

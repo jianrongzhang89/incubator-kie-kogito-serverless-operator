@@ -197,11 +197,15 @@ func Test_appPropertyHandler_WithServicesWithUserOverrides(t *testing.T) {
 	platform.Namespace = ns
 	platform.Spec = operatorapi.SonataFlowPlatformSpec{
 		Services: &operatorapi.ServicesPlatformSpec{
-			DataIndex: &operatorapi.ServiceSpec{
-				Enabled: &enabled,
+			DataIndex: &operatorapi.DataIndexServiceSpec{
+				ServiceSpec: operatorapi.ServiceSpec{
+					Enabled: &enabled,
+				},
 			},
-			JobService: &operatorapi.ServiceSpec{
-				Enabled: &enabled,
+			JobService: &operatorapi.JobServiceServiceSpec{
+				ServiceSpec: operatorapi.ServiceSpec{
+					Enabled: &enabled,
+				},
 			},
 		},
 	}

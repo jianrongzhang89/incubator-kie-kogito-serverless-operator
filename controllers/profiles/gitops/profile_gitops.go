@@ -15,6 +15,8 @@
 package gitops
 
 import (
+	"context"
+
 	"github.com/apache/incubator-kie-kogito-serverless-operator/api/metadata"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/discovery"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles"
@@ -32,12 +34,13 @@ type gitOpsProfile struct {
 
 // NewProfileForOpsReconciler creates an alternative prod profile that won't require to build the workflow image in order to deploy
 // the workflow application. It assumes that the image has been built somewhere else.
-func NewProfileForOpsReconciler(client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
+func NewProfileForOpsReconciler(ctx context.Context, client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
 	support := &common.StateSupport{
 		C:        client,
 		Cfg:      cfg,
 		Catalog:  discovery.NewServiceCatalogForConfig(client, cfg),
 		Recorder: recorder,
+		Context:  ctx,
 	}
 	// the reconciliation state machine
 	stateMachine := common.NewReconciliationStateMachine(

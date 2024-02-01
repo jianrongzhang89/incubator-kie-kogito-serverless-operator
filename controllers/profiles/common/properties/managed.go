@@ -26,6 +26,7 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/common/persistence"
 
 	"github.com/apache/incubator-kie-kogito-serverless-operator/utils"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/discovery"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/platform/services"
@@ -142,10 +143,11 @@ func (a *managedPropertyHandler) addDefaultManagedProperty(name string, value st
 // The set of defaultManagedProperties that are provided by the operator, and that the user cannot overwrite even if it changes
 // the user-managed ConfigMap. This set includes for example the required properties to connect with the data index and the
 // job service when any of these services are managed by the platform.
-func NewManagedPropertyHandler(workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (ManagedPropertyHandler, error) {
+func NewManagedPropertyHandler(ctx context.Context, c client.Client, workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (ManagedPropertyHandler, error) {
 	handler := &managedPropertyHandler{
 		workflow: workflow,
 		platform: platform,
+		ctx:      ctx,
 	}
 	props := properties.NewProperties()
 	props.Set(constants.KogitoUserTasksEventsEnabled, "false")
@@ -160,19 +162,19 @@ func NewManagedPropertyHandler(workflow *operatorapi.SonataFlow, platform *opera
 			return nil, err
 		}
 		props.Merge(p)
-		p, err = services.GenerateDataIndexWorkflowProperties(workflow, platform)
+		p, err = services.GenerateDataIndexWorkflowProperties(ctx, c, workflow, platform)
 		if err != nil {
 			return nil, err
 		}
 		props.Merge(p)
-		p, err = services.GenerateJobServiceWorkflowProperties(workflow, platform)
+		p, err = services.GenerateJobServiceWorkflowProperties(ctx, c, workflow, platform)
 		if err != nil {
 			return nil, err
 		}
 		props.Merge(p)
 	}
 
-	p, err := generateKnativeEventingWorkflowProperties(workflow)
+	p, err := generateKnativeEventingWorkflowProperties(ctx, c, workflow, platform)
 	if err != nil {
 		return nil, err
 	}
@@ -183,10 +185,10 @@ func NewManagedPropertyHandler(workflow *operatorapi.SonataFlow, platform *opera
 	return handler.withKogitoServiceUrl(), nil
 }
 
-// ApplicationManagedProperties immutable default application properties that can be used with any workflow based on Quarkus.
-// Alias for NewManagedPropertyHandler(workflow).Build()
-func ApplicationManagedProperties(workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (string, error) {
-	p, err := NewManagedPropertyHandler(workflow, platform)
+// ImmutableApplicationProperties immutable default application properties that can be used with any workflow based on Quarkus.
+// Alias for NewAppPropertyHandler(workflow).Build()
+func ImmutableApplicationProperties(ctx context.Context, c client.Client, workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (string, error) {
+	p, err := NewManagedPropertyHandler(ctx, c, workflow, platform)
 	if err != nil {
 		return "", err
 	}

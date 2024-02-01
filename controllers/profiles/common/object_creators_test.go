@@ -42,15 +42,16 @@ import (
 func Test_ensureWorkflowPropertiesConfigMapMutator(t *testing.T) {
 	workflow := test.GetBaseSonataFlowWithDevProfile(t.Name())
 	platform := test.GetBasePlatform()
+	stateSupport := test.GetDummyStateSupport()
 	// can't be new
-	managedProps, _ := ManagedPropsConfigMapCreator(workflow, platform)
+	managedProps, _ := ManagedPropsConfigMapCreator(workflow, platform, stateSupport)
 	managedProps.SetUID("1")
 	managedProps.SetResourceVersion("1")
 	managedPropsCM := managedProps.(*corev1.ConfigMap)
 
-	userProps, _ := UserPropsConfigMapCreator(workflow)
+	userProps, _ := UserPropsConfigMapCreator(workflow, nil)
 	userPropsCM := userProps.(*corev1.ConfigMap)
-	visitor := ManagedPropertiesMutateVisitor(context.TODO(), nil, workflow, nil, userPropsCM)
+	visitor := ManagedPropertiesMutateVisitor(context.TODO(), nil, nil, workflow, nil, userPropsCM)
 	mutateFn := visitor(managedProps)
 
 	assert.NoError(t, mutateFn())
@@ -75,17 +76,17 @@ func Test_ensureWorkflowPropertiesConfigMapMutator(t *testing.T) {
 func Test_ensureWorkflowPropertiesConfigMapMutator_DollarReplacement(t *testing.T) {
 	workflow := test.GetBaseSonataFlowWithDevProfile(t.Name())
 	platform := test.GetBasePlatform()
-	managedProps, _ := ManagedPropsConfigMapCreator(workflow, platform)
+	managedProps, _ := ManagedPropsConfigMapCreator(workflow, platform, nil)
 	managedProps.SetName(workflow.Name)
 	managedProps.SetNamespace(workflow.Namespace)
 	managedProps.SetUID("0000-0001-0002-0003")
 	managedPropsCM := managedProps.(*corev1.ConfigMap)
 
-	userProps, _ := UserPropsConfigMapCreator(workflow)
+	userProps, _ := UserPropsConfigMapCreator(workflow, nil)
 	userPropsCM := userProps.(*corev1.ConfigMap)
 	userPropsCM.Data[workflowproj.ApplicationPropertiesFileName] = "mp.messaging.outgoing.kogito_outgoing_stream.url=${kubernetes:services.v1/event-listener}"
 
-	mutateVisitorFn := ManagedPropertiesMutateVisitor(context.TODO(), nil, workflow, nil, userPropsCM)
+	mutateVisitorFn := ManagedPropertiesMutateVisitor(context.TODO(), nil, nil, workflow, nil, userPropsCM)
 
 	err := mutateVisitorFn(managedPropsCM)()
 	assert.NoError(t, err)
@@ -130,7 +131,7 @@ func TestMergePodSpec(t *testing.T) {
 		},
 	}
 
-	object, err := DeploymentCreator(workflow, nil)
+	object, err := DeploymentCreator(workflow, nil, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -165,7 +166,7 @@ func TestMergePodSpec_OverrideContainers(t *testing.T) {
 		},
 	}
 
-	object, err := DeploymentCreator(workflow, nil)
+	object, err := DeploymentCreator(workflow, nil, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -179,9 +180,9 @@ func TestMergePodSpec_OverrideContainers(t *testing.T) {
 
 func Test_ensureWorkflowSinkBindingIsCreated(t *testing.T) {
 	workflow := test.GetVetEventSonataFlow(t.Name())
-
+	plf := test.GetBasePlatform()
 	//On Kubernetes we want the service exposed in Dev with NodePort
-	sinkBinding, _ := SinkBindingCreator(workflow)
+	sinkBinding, _ := SinkBindingCreator(workflow, plf, nil)
 	sinkBinding.SetUID("1")
 	sinkBinding.SetResourceVersion("1")
 
@@ -199,7 +200,7 @@ func Test_ensureWorkflowTriggersAreCreated(t *testing.T) {
 	workflow := test.GetVetEventSonataFlow(t.Name())
 
 	//On Kubernetes we want the service exposed in Dev with NodePort
-	triggers, _ := TriggersCreator(workflow)
+	triggers, _ := TriggersCreator(workflow, nil, nil)
 
 	assert.NotEmpty(t, triggers)
 	assert.Len(t, triggers, 2)
@@ -256,7 +257,7 @@ func TestMergePodSpec_WithPostgreSQL_and_JDBC_URL_field(t *testing.T) {
 		},
 	}
 
-	object, err := DeploymentCreator(workflow, nil)
+	object, err := DeploymentCreator(workflow, nil, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -344,7 +345,7 @@ func TestMergePodSpec_OverrideContainers_WithPostgreSQL_In_Workflow_CR(t *testin
 		},
 	}
 
-	object, err := DeploymentCreator(workflow, nil)
+	object, err := DeploymentCreator(workflow, nil, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -416,7 +417,7 @@ func TestMergePodSpec_WithServicedPostgreSQL_In_Platform_CR_And_Worflow_Requesti
 	workflow.Spec = v1alpha08.SonataFlowSpec{
 		Persistence: nil,
 	}
-	object, err := DeploymentCreator(workflow, p)
+	object, err := DeploymentCreator(workflow, p, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -516,7 +517,7 @@ func TestMergePodSpec_WithServicedPostgreSQL_In_Platform_And_In_Workflow_CR(t *t
 			},
 		},
 	}
-	object, err := DeploymentCreator(workflow, p)
+	object, err := DeploymentCreator(workflow, p, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)
@@ -587,7 +588,7 @@ func TestMergePodSpec_WithServicedPostgreSQL_In_Platform_But_Workflow_CR_Not_Req
 	workflow.Spec = v1alpha08.SonataFlowSpec{
 		Persistence: &v1alpha08.PersistenceOptionsSpec{},
 	}
-	object, err := DeploymentCreator(workflow, p)
+	object, err := DeploymentCreator(workflow, p, nil)
 	assert.NoError(t, err)
 
 	deployment := object.(*appsv1.Deployment)

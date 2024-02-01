@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	operatorapi "github.com/apache/incubator-kie-kogito-serverless-operator/api/v1alpha08"
+	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/common/constants"
 )
 
 var _ ObjectEnsurer = &defaultObjectEnsurer{}
@@ -53,58 +54,58 @@ type ObjectEnsurerWithPlatform interface {
 type MutateVisitor func(object client.Object) controllerutil.MutateFn
 
 // NewObjectEnsurer see defaultObjectEnsurer
-func NewObjectEnsurer(client client.Client, creator ObjectCreator) ObjectEnsurer {
+func NewObjectEnsurer(support *StateSupport, creator ObjectCreator) ObjectEnsurer {
 	return &defaultObjectEnsurer{
-		c:       client,
+		support: support,
 		creator: creator,
 	}
 }
 
-// NewObjectEnsurerWithPlatform see defaultObjectEnsurerWithPlatform
-func NewObjectEnsurerWithPlatform(client client.Client, creator ObjectCreatorWithPlatform) ObjectEnsurerWithPlatform {
+// NewObjectEnsurerWithPlatform see defaultObjectEnsurerWithPLatform
+func NewObjectEnsurerWithPlatform(support *StateSupport, creator ObjectCreatorWithPlatform) ObjectEnsurerWithPlatform {
 	return &defaultObjectEnsurerWithPlatform{
-		c:       client,
+		support: support,
 		creator: creator,
 	}
 }
 
 // defaultObjectEnsurer provides the engine for a ReconciliationState that needs to create or update a given Kubernetes object during the reconciliation cycle.
 type defaultObjectEnsurer struct {
-	c       client.Client
+	support *StateSupport
 	creator ObjectCreator
 }
 
 func (d *defaultObjectEnsurer) Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, visitors ...MutateVisitor) (client.Object, controllerutil.OperationResult, error) {
 	result := controllerutil.OperationResultNone
 
-	object, err := d.creator(workflow)
+	object, err := d.creator(workflow, d.support)
 	if err != nil || object == nil {
 		return nil, result, err
 	}
-	return ensureObject(ctx, workflow, visitors, result, d.c, object)
+	return ensureObject(ctx, workflow, visitors, result, d.support.C, object)
 }
 
 // defaultObjectEnsurerWithPlatform is the equivalent of defaultObjectEnsurer for resources that require a reference to the SonataFlowPlatform
 type defaultObjectEnsurerWithPlatform struct {
-	c       client.Client
+	support *StateSupport
 	creator ObjectCreatorWithPlatform
 }
 
 func (d *defaultObjectEnsurerWithPlatform) Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, pl *operatorapi.SonataFlowPlatform, visitors ...MutateVisitor) (client.Object, controllerutil.OperationResult, error) {
 	result := controllerutil.OperationResultNone
 
-	object, err := d.creator(workflow, pl)
+	object, err := d.creator(workflow, pl, d.support)
 	if err != nil {
 		return nil, result, err
 	}
-	if result, err = controllerutil.CreateOrPatch(ctx, d.c, object,
+	if result, err = controllerutil.CreateOrPatch(ctx, d.support.C, object,
 		func() error {
 			for _, v := range visitors {
 				if visitorErr := v(object)(); visitorErr != nil {
 					return visitorErr
 				}
 			}
-			return controllerutil.SetControllerReference(workflow, object, d.c.Scheme())
+			return controllerutil.SetControllerReference(workflow, object, d.support.C.Scheme())
 		}); err != nil {
 		return nil, result, err
 	}
@@ -137,35 +138,79 @@ type ObjectEnsurerResult struct {
 	Error  error
 }
 
-func NewObjectsEnsurer(client client.Client, creator ObjectsCreator) ObjectsEnsurer {
-	return &defaultObjectsEnsurer{
-		c:       client,
+// ObjectsEnsurer is an ensurer to apply multiple objects
+type ObjectsEnsurerWithPlatform interface {
+	Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, pl *operatorapi.SonataFlowPlatform, visitors ...MutateVisitor) []ObjectEnsurerResult
+}
+
+func NewObjectsEnsurerWithPlatform(support *StateSupport, creator ObjectsCreatorWithPlatform) ObjectsEnsurerWithPlatform {
+	return &defaultObjectsEnsurerWithPlatform{
+		support: support,
 		creator: creator,
 	}
 }
 
-type defaultObjectsEnsurer struct {
+type defaultObjectsEnsurerWithPlatform struct {
 	ObjectsEnsurer
-	c       client.Client
-	creator ObjectsCreator
+	support *StateSupport
+	creator ObjectsCreatorWithPlatform
 }
 
-func (d *defaultObjectsEnsurer) Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, visitors ...MutateVisitor) []ObjectEnsurerResult {
+func (d *defaultObjectsEnsurerWithPlatform) Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, pl *operatorapi.SonataFlowPlatform, visitors ...MutateVisitor) []ObjectEnsurerResult {
 	result := controllerutil.OperationResultNone
 
-	objects, err := d.creator(workflow)
+	objects, err := d.creator(workflow, pl, d.support)
 	if err != nil {
 		return []ObjectEnsurerResult{{nil, result, err}}
 	}
 	var ensureResult []ObjectEnsurerResult
 	for _, object := range objects {
-		ensureObject, c, err := ensureObject(ctx, workflow, visitors, result, d.c, object)
+		ensureObject, c, err := ensureObject(ctx, workflow, visitors, result, d.support.C, object)
 		ensureResult = append(ensureResult, ObjectEnsurerResult{ensureObject, c, err})
 		if err != nil {
 			return ensureResult
 		}
 	}
 	return ensureResult
+}
+
+func NewObjectsEnsurer(support *StateSupport, creator ObjectsCreator) ObjectsEnsurer {
+	return &defaultObjectsEnsurer{
+		support: support,
+		creator: creator,
+	}
+}
+
+type defaultObjectsEnsurer struct {
+	ObjectsEnsurer
+	support *StateSupport
+	creator ObjectsCreator
+}
+
+func (d *defaultObjectsEnsurer) Ensure(ctx context.Context, workflow *operatorapi.SonataFlow, visitors ...MutateVisitor) []ObjectEnsurerResult {
+	result := controllerutil.OperationResultNone
+
+	objects, err := d.creator(workflow, d.support)
+	if err != nil {
+		return []ObjectEnsurerResult{{nil, result, err}}
+	}
+	var ensureResult []ObjectEnsurerResult
+	for _, object := range objects {
+		ensureObject, c, err := ensureObject(ctx, workflow, visitors, result, d.support.C, object)
+		ensureResult = append(ensureResult, ObjectEnsurerResult{ensureObject, c, err})
+		if err != nil {
+			return ensureResult
+		}
+	}
+	return ensureResult
+}
+
+func setWorkflowFinalizer(ctx context.Context, c client.Client, workflow *operatorapi.SonataFlow) error {
+	if !controllerutil.ContainsFinalizer(workflow, constants.WorkflowTriggerFinalizer) {
+		controllerutil.AddFinalizer(workflow, constants.WorkflowTriggerFinalizer)
+		return c.Update(ctx, workflow)
+	}
+	return nil
 }
 
 func ensureObject(ctx context.Context, workflow *operatorapi.SonataFlow, visitors []MutateVisitor, result controllerutil.OperationResult, c client.Client, object client.Object) (client.Object, controllerutil.OperationResult, error) {
@@ -175,6 +220,12 @@ func ensureObject(ctx context.Context, workflow *operatorapi.SonataFlow, visitor
 				if visitorErr := v(object)(); visitorErr != nil {
 					return visitorErr
 				}
+			}
+
+			if workflow.Namespace != object.GetNamespace() {
+				// This is for Knative trigger in a different namespace
+				// Set the finalizer for trigger cleanup when the workflow is deleted
+				return setWorkflowFinalizer(ctx, c, workflow)
 			}
 			return controllerutil.SetControllerReference(workflow, object, c.Scheme())
 		}); err != nil {

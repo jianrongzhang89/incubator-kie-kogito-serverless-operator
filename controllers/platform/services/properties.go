@@ -20,6 +20,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"strings"
@@ -27,8 +28,10 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/log"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/utils"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	operatorapi "github.com/apache/incubator-kie-kogito-serverless-operator/api/v1alpha08"
+	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/knative"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/profiles/common/constants"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/workflowdef"
@@ -157,11 +160,15 @@ func generateReactiveURL(postgresSpec *operatorapi.PersistencePostgreSQL, schema
 // with the Data Index. For the calculation this function considers if the Data Index is present in the
 // SonataFlowPlatform, if not present, no properties.
 // Never nil.
-func GenerateDataIndexWorkflowProperties(workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (*properties.Properties, error) {
+func GenerateDataIndexWorkflowProperties(ctx context.Context, client client.Client, workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (*properties.Properties, error) {
 	props := properties.NewProperties()
 	props.Set(constants.KogitoProcessDefinitionsEventsEnabled, "false")
 	props.Set(constants.KogitoProcessInstancesEventsEnabled, "false")
-	di := NewDataIndexHandler(platform)
+	sink, err := knative.GetWorkflowSink(ctx, client, workflow, platform)
+	if err != nil {
+		return nil, err
+	}
+	di := NewDataIndexHandler(ctx, client, platform)
 	if !profiles.IsDevProfile(workflow) && workflow != nil && workflow.Status.Services != nil && workflow.Status.Services.DataIndexRef != nil {
 		serviceBaseUrl := workflow.Status.Services.DataIndexRef.Url
 		if di.IsServiceEnabled() && len(serviceBaseUrl) > 0 {
@@ -170,8 +177,17 @@ func GenerateDataIndexWorkflowProperties(workflow *operatorapi.SonataFlow, platf
 			props.Set(constants.KogitoProcessDefinitionsEventsErrorsEnabled, "true")
 			props.Set(constants.KogitoDataIndexHealthCheckEnabled, "true")
 			props.Set(constants.KogitoDataIndexURL, serviceBaseUrl)
-			props.Set(constants.KogitoProcessDefinitionsEventsURL, serviceBaseUrl+constants.KogitoProcessDefinitionsEventsPath)
-			props.Set(constants.KogitoProcessInstancesEventsURL, serviceBaseUrl+constants.KogitoProcessInstancesEventsPath)
+			if sink != nil {
+				props.Set(constants.KogitoProcessDefinitionsEventsConnector, constants.QuarkusHTTP)
+				props.Set(constants.KogitoProcessInstancesEventsConnector, constants.QuarkusHTTP)
+				props.Set(constants.KogitoProcessDefinitionsEventsURL, constants.KnativeInjectedEnvVar)
+				props.Set(constants.KogitoProcessInstancesEventsURL, constants.KnativeInjectedEnvVar)
+				props.Set(constants.KogitoProcessDefinitionsEventsMethod, constants.Post)
+				props.Set(constants.KogitoProcessInstancesEventsMethod, constants.Post)
+			} else {
+				props.Set(constants.KogitoProcessDefinitionsEventsURL, serviceBaseUrl+constants.KogitoProcessDefinitionsEventsPath)
+				props.Set(constants.KogitoProcessInstancesEventsURL, serviceBaseUrl+constants.KogitoProcessInstancesEventsPath)
+			}
 		}
 	}
 	props.Sort()
@@ -183,11 +199,15 @@ func GenerateDataIndexWorkflowProperties(workflow *operatorapi.SonataFlow, platf
 // with the Job Service. For the calculation this function considers if the Job Service is present in the
 // SonataFlowPlatform, if not present, no properties.
 // Never nil.
-func GenerateJobServiceWorkflowProperties(workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (*properties.Properties, error) {
+func GenerateJobServiceWorkflowProperties(ctx context.Context, client client.Client, workflow *operatorapi.SonataFlow, platform *operatorapi.SonataFlowPlatform) (*properties.Properties, error) {
 	props := properties.NewProperties()
 	props.Set(constants.JobServiceRequestEventsConnector, constants.QuarkusHTTP)
 	props.Set(constants.JobServiceRequestEventsURL, fmt.Sprintf("%s://localhost/v2/jobs/events", constants.JobServiceURLProtocol))
-	js := NewJobServiceHandler(platform)
+	sink, err := knative.GetWorkflowSink(ctx, client, workflow, platform)
+	if err != nil {
+		return nil, err
+	}
+	js := NewJobServiceHandler(ctx, client, platform)
 	if !profiles.IsDevProfile(workflow) && workflow != nil && workflow.Status.Services != nil && workflow.Status.Services.JobServiceRef != nil {
 		serviceBaseUrl := workflow.Status.Services.JobServiceRef.Url
 		if js.IsServiceEnabled() && len(serviceBaseUrl) > 0 {
@@ -195,7 +215,13 @@ func GenerateJobServiceWorkflowProperties(workflow *operatorapi.SonataFlow, plat
 				props.Set(constants.KogitoJobServiceHealthCheckEnabled, "true")
 			}
 			props.Set(constants.KogitoJobServiceURL, serviceBaseUrl)
-			props.Set(constants.JobServiceRequestEventsURL, serviceBaseUrl+constants.JobServiceJobEventsPath)
+			if sink != nil {
+				props.Set(constants.JobServiceRequestEventsURL, constants.KnativeInjectedEnvVar)
+				props.Set(constants.JobServiceRequestEventsConnector, constants.QuarkusHTTP)
+				props.Set(constants.JobServiceRequestEventsMethod, constants.Post)
+			} else {
+				props.Set(constants.JobServiceRequestEventsURL, serviceBaseUrl+constants.JobServiceJobEventsPath)
+			}
 		}
 	}
 	props.Sort()

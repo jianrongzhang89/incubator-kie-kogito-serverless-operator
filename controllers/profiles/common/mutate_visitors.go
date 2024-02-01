@@ -36,6 +36,10 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/workflowproj"
 )
 
+const (
+	KnativeBundleVolume = "kne-bundle-volume"
+)
+
 // ImageDeploymentMutateVisitor creates a visitor that mutates a vanilla Kubernetes Deployment to apply the given image in the DefaultContainerName container
 // Only overrides the image if .spec.podTemplate.container.Image is empty.
 func ImageDeploymentMutateVisitor(workflow *operatorapi.SonataFlow, image string) MutateVisitor {
@@ -76,13 +80,13 @@ func ImageKServiceMutateVisitor(workflow *operatorapi.SonataFlow, image string) 
 }
 
 // DeploymentMutateVisitor guarantees the state of the default Deployment object
-func DeploymentMutateVisitor(workflow *operatorapi.SonataFlow, plf *operatorapi.SonataFlowPlatform) MutateVisitor {
+func DeploymentMutateVisitor(workflow *operatorapi.SonataFlow, plf *operatorapi.SonataFlowPlatform, support *StateSupport) MutateVisitor {
 	return func(object client.Object) controllerutil.MutateFn {
 		return func() error {
 			if kubeutil.IsObjectNew(object) {
 				return nil
 			}
-			original, err := DeploymentCreator(workflow, plf)
+			original, err := DeploymentCreator(workflow, plf, support)
 			if err != nil {
 				return err
 			}
@@ -96,25 +100,47 @@ func EnsureDeployment(original *appsv1.Deployment, object *appsv1.Deployment) er
 	object.Spec.Replicas = original.Spec.Replicas
 	object.Spec.Selector = original.Spec.Selector
 	object.Labels = original.GetLabels()
+	object.Finalizers = original.Finalizers
 
 	// Clean up the volumes, they are inherited from original, additional are added by other visitors
-	object.Spec.Template.Spec.Volumes = nil
+	// However, the knative mount path must be preserved
+	var kneVol *corev1.Volume = nil
+	for _, v := range object.Spec.Template.Spec.Volumes {
+		if v.Name == KnativeBundleVolume {
+			kneVol = &v
+		}
+	}
+	if kneVol != nil {
+		object.Spec.Template.Spec.Volumes = []corev1.Volume{*kneVol}
+	} else {
+		object.Spec.Template.Spec.Volumes = nil
+	}
 	for i := range object.Spec.Template.Spec.Containers {
-		object.Spec.Template.Spec.Containers[i].VolumeMounts = nil
+		var kneVolMount *corev1.VolumeMount = nil
+		for _, mount := range object.Spec.Template.Spec.Containers[i].VolumeMounts {
+			if mount.Name == KnativeBundleVolume {
+				kneVolMount = &mount
+			}
+		}
+		if kneVolMount == nil {
+			object.Spec.Template.Spec.Containers[i].VolumeMounts = nil
+		} else {
+			object.Spec.Template.Spec.Containers[i].VolumeMounts = []corev1.VolumeMount{*kneVolMount}
+		}
 	}
 
 	// we do a merge to not keep changing the spec since k8s will set default values to the podSpec
-	return mergo.Merge(&object.Spec.Template.Spec, original.Spec.Template.Spec, mergo.WithOverride)
+	return mergo.Merge(&object.Spec, original.Spec)
 }
 
 // KServiceMutateVisitor guarantees the state of the default Knative Service object
-func KServiceMutateVisitor(workflow *operatorapi.SonataFlow, plf *operatorapi.SonataFlowPlatform) MutateVisitor {
+func KServiceMutateVisitor(workflow *operatorapi.SonataFlow, plf *operatorapi.SonataFlowPlatform, support *StateSupport) MutateVisitor {
 	return func(object client.Object) controllerutil.MutateFn {
 		return func() error {
 			if kubeutil.IsObjectNew(object) {
 				return nil
 			}
-			original, err := KServiceCreator(workflow, plf)
+			original, err := KServiceCreator(workflow, plf, support)
 			if err != nil {
 				return err
 			}
@@ -137,13 +163,13 @@ func EnsureKService(original *servingv1.Service, object *servingv1.Service) erro
 	return mergo.Merge(&object.Spec.Template.Spec.PodSpec, original.Spec.Template.Spec.PodSpec, mergo.WithOverride)
 }
 
-func ServiceMutateVisitor(workflow *operatorapi.SonataFlow) MutateVisitor {
+func ServiceMutateVisitor(workflow *operatorapi.SonataFlow, support *StateSupport) MutateVisitor {
 	return func(object client.Object) controllerutil.MutateFn {
 		return func() error {
 			if kubeutil.IsObjectNew(object) {
 				return nil
 			}
-			original, err := ServiceCreator(workflow)
+			original, err := ServiceCreator(workflow, support)
 			if err != nil {
 				return err
 			}
@@ -154,7 +180,7 @@ func ServiceMutateVisitor(workflow *operatorapi.SonataFlow) MutateVisitor {
 	}
 }
 
-func ManagedPropertiesMutateVisitor(ctx context.Context, catalog discovery.ServiceCatalog,
+func ManagedPropertiesMutateVisitor(ctx context.Context, c client.Client, catalog discovery.ServiceCatalog,
 	workflow *operatorapi.SonataFlow, plf *operatorapi.SonataFlowPlatform, userProps *corev1.ConfigMap) MutateVisitor {
 	return func(object client.Object) controllerutil.MutateFn {
 		return func() error {
@@ -170,7 +196,7 @@ func ManagedPropertiesMutateVisitor(ctx context.Context, catalog discovery.Servi
 			if !hasKey {
 				userProperties = ""
 			}
-			propertyHandler, err := properties.NewManagedPropertyHandler(workflow, plf)
+			propertyHandler, err := properties.NewManagedPropertyHandler(ctx, c, workflow, plf)
 			if err != nil {
 				return err
 			}
@@ -190,8 +216,34 @@ func RolloutDeploymentIfCMChangedMutateVisitor(workflow *operatorapi.SonataFlow,
 	return func(object client.Object) controllerutil.MutateFn {
 		return func() error {
 			deployment := object.(*appsv1.Deployment)
+			restoreKnativeVolumeAndVolumeMount(deployment)
 			err := kubeutil.AnnotateDeploymentConfigChecksum(workflow, deployment, userPropsCM, managedPropsCM)
 			return err
 		}
+	}
+}
+
+func moveKnativeVolumeToEnd(vols []corev1.Volume) {
+	for i := 0; i < len(vols)-1; i++ {
+		if vols[i].Name == KnativeBundleVolume {
+			vols[i], vols[i+1] = vols[i+1], vols[i]
+		}
+	}
+}
+
+func moveKnativeVolumeMountToEnd(mounts []corev1.VolumeMount) {
+	for i := 0; i < len(mounts)-1; i++ {
+		if mounts[i].Name == KnativeBundleVolume {
+			mounts[i], mounts[i+1] = mounts[i+1], mounts[i]
+		}
+	}
+}
+
+// Knative Sinkbinding injects K_SINK env, a volume and volumn mount. The volume and volume mount
+// must be in the end of the array to avoid repeadly restarting of the workflow pod
+func restoreKnativeVolumeAndVolumeMount(deployment *appsv1.Deployment) {
+	moveKnativeVolumeToEnd(deployment.Spec.Template.Spec.Volumes)
+	for i := 0; i < len(deployment.Spec.Template.Spec.Containers); i++ {
+		moveKnativeVolumeMountToEnd(deployment.Spec.Template.Spec.Containers[i].VolumeMounts)
 	}
 }

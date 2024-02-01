@@ -20,6 +20,7 @@
 package preview
 
 import (
+	"context"
 	"time"
 
 	"github.com/apache/incubator-kie-kogito-serverless-operator/api/metadata"
@@ -83,22 +84,23 @@ func (o *ObjectEnsurers) ServiceByDeploymentModel(workflow *v1alpha08.SonataFlow
 // NewObjectEnsurers common.ObjectEnsurer(s) for the preview profile.
 func NewObjectEnsurers(support *common.StateSupport) *ObjectEnsurers {
 	return &ObjectEnsurers{
-		deployment:            common.NewObjectEnsurerWithPlatform(support.C, common.DeploymentCreator),
-		kservice:              common.NewObjectEnsurerWithPlatform(support.C, common.KServiceCreator),
-		service:               common.NewObjectEnsurer(support.C, common.ServiceCreator),
-		userPropsConfigMap:    common.NewObjectEnsurer(support.C, common.UserPropsConfigMapCreator),
-		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support.C, common.ManagedPropsConfigMapCreator),
+		deployment:            common.NewObjectEnsurerWithPlatform(support, common.DeploymentCreator),
+		kservice:              common.NewObjectEnsurerWithPlatform(support, common.KServiceCreator),
+		service:               common.NewObjectEnsurer(support, common.ServiceCreator),
+		userPropsConfigMap:    common.NewObjectEnsurer(support, common.UserPropsConfigMapCreator),
+		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support, common.ManagedPropsConfigMapCreator),
 	}
 }
 
 // NewProfileReconciler the default profile builder which includes a build state to run an internal build process
 // to have an immutable workflow image deployed
-func NewProfileReconciler(client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
+func NewProfileReconciler(ctx context.Context, client client.Client, cfg *rest.Config, recorder record.EventRecorder) profiles.ProfileReconciler {
 	support := &common.StateSupport{
 		C:        client,
 		Cfg:      cfg,
 		Catalog:  discovery.NewServiceCatalogForConfig(client, cfg),
 		Recorder: recorder,
+		Context:  ctx,
 	}
 	// the reconciliation state machine
 	stateMachine := common.NewReconciliationStateMachine(

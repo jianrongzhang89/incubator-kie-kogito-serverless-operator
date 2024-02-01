@@ -38,7 +38,7 @@ func Test_Reconciler_ProdOps(t *testing.T) {
 	client := test.NewSonataFlowClientBuilder().
 		WithRuntimeObjects(workflow).
 		WithStatusSubresource(workflow, &operatorapi.SonataFlowBuild{}).Build()
-	result, err := NewProfileForOpsReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err := NewProfileForOpsReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 
 	assert.NotNil(t, result.RequeueAfter)
@@ -49,7 +49,7 @@ func Test_Reconciler_ProdOps(t *testing.T) {
 	assert.False(t, workflow.Status.IsReady())
 
 	// Reconcile again to run the deployment handler
-	result, err = NewProfileForOpsReconciler(client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
+	result, err = NewProfileForOpsReconciler(context.TODO(), client, &rest.Config{}, test.NewFakeRecorder()).Reconcile(context.TODO(), workflow)
 	assert.NoError(t, err)
 
 	// Let's check for the right creation of the workflow (one CM volume, one container with a custom image)

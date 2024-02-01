@@ -31,7 +31,7 @@ import (
 func Test_ensureWorkflowDevServiceIsExposed(t *testing.T) {
 	workflow := test.GetBaseSonataFlowWithDevProfile(t.Name())
 	//On Kubernetes we want the service exposed in Dev with NodePort
-	service, _ := serviceCreator(workflow)
+	service, _ := serviceCreator(workflow, nil)
 	service.SetUID("1")
 	service.SetResourceVersion("1")
 
@@ -43,5 +43,5 @@ func Test_ensureWorkflowDevServiceIsExposed(t *testing.T) {
 	assert.Equal(t, reflectService.Spec.Type, v1.ServiceTypeNodePort)
 	assert.NotNil(t, reflectService.ObjectMeta)
 	assert.NotNil(t, reflectService.ObjectMeta.Labels)
-	assert.Equal(t, reflectService.ObjectMeta.Labels, map[string]string{"test": "test", "app": "greeting", "sonataflow.org/workflow-app": "greeting"})
+	assert.Equal(t, reflectService.ObjectMeta.Labels, map[string]string{"test": "test", "app": "greeting", "sonataflow.org/workflow-app": "greeting", "sonataflow.org/workflow-namespace": "Test_ensureWorkflowDevServiceIsExposed"})
 }

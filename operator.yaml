@@ -1048,6 +1048,9 @@ spec:
                   this will override the use of any cluster-scoped services that might
                   be defined via `SonataFlowClusterPlatform`.'
                 properties:
+                  broker:
+                    description: Broker to commute with workflow deployment
+                    type: string
                   dataIndex:
                     description: 'Deploys the Data Index service for use by workflows
                       without the `sonataflow.org/profile: dev` annotation.'

@@ -40,7 +40,7 @@ var _ = Describe("PlatformServiceHandler properties", func() {
 
 			DescribeTable("Job Service",
 				func(plfm *operatorapi.SonataFlowPlatform, expectedProperties *properties.Properties) {
-					js := NewJobServiceHandler(plfm)
+					js := NewJobServiceHandler(plf)
 					handler, err := NewServiceAppPropertyHandler(js)
 					Expect(err).NotTo(HaveOccurred())
 					p, err := properties.LoadString(handler.Build())

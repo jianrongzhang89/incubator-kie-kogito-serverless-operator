@@ -31,6 +31,7 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/utils"
 	kubeutil "github.com/apache/incubator-kie-kogito-serverless-operator/utils/kubernetes"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/workflowproj"
+	"github.com/imdario/mergo"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -61,14 +62,14 @@ func (action *serviceAction) Handle(ctx context.Context, platform *operatorapi.S
 		return nil, err
 	}
 
-	psDI := services.NewDataIndexHandler(platform)
+	psDI := services.NewDataIndexHandler(ctx, action.client, platform)
 	if psDI.IsServiceSetInSpec() {
 		if err := createOrUpdateServiceComponents(ctx, action.client, platform, psDI); err != nil {
 			return nil, err
 		}
 	}
 
-	psJS := services.NewJobServiceHandler(platform)
+	psJS := services.NewJobServiceHandler(ctx, action.client, platform)
 	if psJS.IsServiceSetInSpec() {
 		if err := createOrUpdateServiceComponents(ctx, action.client, platform, psJS); err != nil {
 			return nil, err
@@ -79,16 +80,20 @@ func (action *serviceAction) Handle(ctx context.Context, platform *operatorapi.S
 }
 
 func createOrUpdateServiceComponents(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, psh services.PlatformServiceHandler) error {
-	if err := createOrUpdateConfigMap(ctx, client, platform, psh); err != nil {
+	configMap, err := createOrUpdateConfigMap(ctx, client, platform, psh)
+	if err != nil {
 		return err
 	}
-	if err := createOrUpdateDeployment(ctx, client, platform, psh); err != nil {
+	if err := createOrUpdateDeployment(ctx, client, platform, configMap, psh); err != nil {
 		return err
 	}
-	return createOrUpdateService(ctx, client, platform, psh)
+	if err := createOrUpdateService(ctx, client, platform, psh); err != nil {
+		return err
+	}
+	return createKnativeResources(ctx, client, platform, psh)
 }
 
-func createOrUpdateDeployment(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, psh services.PlatformServiceHandler) error {
+func createOrUpdateDeployment(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, configMap *corev1.ConfigMap, psh services.PlatformServiceHandler) error {
 	readyProbe := &corev1.Probe{
 		ProbeHandler: corev1.ProbeHandler{
 			HTTPGet: &corev1.HTTPGetAction{
@@ -182,8 +187,10 @@ func createOrUpdateDeployment(ctx context.Context, client client.Client, platfor
 
 	// Create or Update the deployment
 	if op, err := controllerutil.CreateOrUpdate(ctx, client, serviceDeployment, func() error {
-		serviceDeployment.Spec = serviceDeploymentSpec
-
+		err := mergo.Merge(&(serviceDeployment.Spec), serviceDeploymentSpec)
+		if err != nil {
+			return err
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -242,12 +249,13 @@ func getLabels(platform *operatorapi.SonataFlowPlatform, psh services.PlatformSe
 	return lbl, selectorLbl
 }
 
-func createOrUpdateConfigMap(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, psh services.PlatformServiceHandler) error {
+func createOrUpdateConfigMap(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, psh services.PlatformServiceHandler) (*corev1.ConfigMap, error) {
 	handler, err := services.NewServiceAppPropertyHandler(psh)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lbl, _ := getLabels(platform, psh)
+	dataStr := handler.Build()
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      psh.GetServiceCmName(),
@@ -255,23 +263,45 @@ func createOrUpdateConfigMap(ctx context.Context, client client.Client, platform
 			Labels:    lbl,
 		},
 		Data: map[string]string{
-			workflowproj.ApplicationPropertiesFileName: handler.Build(),
+			workflowproj.ApplicationPropertiesFileName: dataStr,
 		},
 	}
 	if err := controllerutil.SetControllerReference(platform, configMap, client.Scheme()); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Create or Update the service
 	if op, err := controllerutil.CreateOrUpdate(ctx, client, configMap, func() error {
-		configMap.Data[workflowproj.ApplicationPropertiesFileName] = handler.WithUserProperties(configMap.Data[workflowproj.ApplicationPropertiesFileName]).Build()
+		configMap.Data[workflowproj.ApplicationPropertiesFileName] = handler.WithUserProperties(dataStr).Build()
 
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	} else {
 		klog.V(log.I).InfoS("ConfigMap successfully reconciled", "operation", op)
 	}
+	return configMap, nil
+}
 
+func createKnativeResources(ctx context.Context, client client.Client, platform *operatorapi.SonataFlowPlatform, psh services.PlatformServiceHandler) error {
+
+	lbl, _ := getLabels(platform, psh)
+	if objs, err := psh.GenerateKnativeResources(platform, lbl); err != nil {
+		return err
+	} else if len(objs) > 0 {
+		for _, obj := range objs {
+			if op, err := controllerutil.CreateOrUpdate(ctx, client, obj, func() error {
+				if err := controllerutil.SetControllerReference(platform, obj, client.Scheme()); err != nil {
+					return err
+				}
+				return nil
+			}); err != nil {
+				return err
+			} else {
+				klog.V(log.I).InfoS("Knative Eventing resources successfully created", "operation", op)
+			}
+		}
+		return nil
+	}
 	return nil
 }

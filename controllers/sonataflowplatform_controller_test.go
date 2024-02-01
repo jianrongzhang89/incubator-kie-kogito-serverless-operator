@@ -23,6 +23,12 @@ import (
 	"context"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	eventingv1 "knative.dev/eventing/pkg/apis/eventing/v1"
+	sourcesv1 "knative.dev/eventing/pkg/apis/sources/v1"
+	v1 "knative.dev/pkg/apis/duck/v1"
+
 	"github.com/apache/incubator-kie-kogito-serverless-operator/api/v1alpha08"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/clusterplatform"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/controllers/platform/services"
@@ -88,7 +94,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		// Create a SonataFlowPlatform object with metadata and spec.
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			DataIndex: &v1alpha08.ServiceSpec{},
+			DataIndex: &v1alpha08.DataIndexServiceSpec{},
 		}
 
 		// Create a fake client to mock API calls.
@@ -125,7 +131,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 
 		// Check data index deployment
 		dep := &appsv1.Deployment{}
-		di := services.NewDataIndexHandler(ksp)
+		di := services.NewDataIndexHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: di.GetServiceName(), Namespace: ksp.Namespace}, dep))
 
 		env := corev1.EnvVar{
@@ -167,20 +173,24 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		var replicas int32 = 2
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			DataIndex: &v1alpha08.ServiceSpec{
-				PodTemplate: v1alpha08.PodTemplateSpec{
-					Replicas: &replicas,
-					Container: v1alpha08.ContainerSpec{
-						Command: []string{"test:latest"},
+			DataIndex: &v1alpha08.DataIndexServiceSpec{
+				ServiceSpec: v1alpha08.ServiceSpec{
+					PodTemplate: v1alpha08.PodTemplateSpec{
+						Replicas: &replicas,
+						Container: v1alpha08.ContainerSpec{
+							Command: []string{"test:latest"},
+						},
 					},
 				},
+				Source: nil,
 			},
 		}
 
-		di := services.NewDataIndexHandler(ksp)
-
 		// Create a fake client to mock API calls.
 		cl := test.NewKogitoClientBuilderWithOpenShift().WithRuntimeObjects(ksp).WithStatusSubresource(ksp).Build()
+
+		di := services.NewDataIndexHandler(context.TODO(), cl, ksp)
+
 		// Create a SonataFlowPlatformReconciler object with the scheme and fake client.
 		r := &SonataFlowPlatformReconciler{cl, cl, cl.Scheme(), &rest.Config{}, &record.FakeRecorder{}}
 
@@ -260,8 +270,8 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		// Check with persistence set
 		ksp.Spec = v1alpha08.SonataFlowPlatformSpec{
 			Services: &v1alpha08.ServicesPlatformSpec{
-				DataIndex:  &v1alpha08.ServiceSpec{},
-				JobService: &v1alpha08.ServiceSpec{},
+				DataIndex:  &v1alpha08.DataIndexServiceSpec{},
+				JobService: &v1alpha08.JobServiceServiceSpec{},
 			},
 			Persistence: &v1alpha08.PlatformPersistenceOptionsSpec{
 				PostgreSQL: &v1alpha08.PlatformPersistencePostgreSQL{
@@ -326,7 +336,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		}
 		// Check Data Index deployment to ensure it contains references to the persistence values defined in the platform CR
 		dep := &appsv1.Deployment{}
-		di := services.NewDataIndexHandler(ksp)
+		di := services.NewDataIndexHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: di.GetServiceName(), Namespace: ksp.Namespace}, dep))
 		assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 		assert.Equal(t, di.GetServiceImageName(constants.PersistenceTypePostgreSQL), dep.Spec.Template.Spec.Containers[0].Image)
@@ -335,7 +345,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		assert.Contains(t, dep.Spec.Template.Spec.Containers[0].Env, dbPassword)
 		assert.Contains(t, dep.Spec.Template.Spec.Containers[0].Env, dbSourceDIURL)
 
-		js := services.NewJobServiceHandler(ksp)
+		js := services.NewJobServiceHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: js.GetServiceName(), Namespace: ksp.Namespace}, dep))
 		assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 		assert.Equal(t, js.GetServiceImageName(constants.PersistenceTypePostgreSQL), dep.Spec.Template.Spec.Containers[0].Image)
@@ -354,19 +364,23 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		urlJS := "jdbc:postgresql://localhost:5432/database?currentSchema=job-service"
 		ksp.Spec = v1alpha08.SonataFlowPlatformSpec{
 			Services: &v1alpha08.ServicesPlatformSpec{
-				DataIndex: &v1alpha08.ServiceSpec{
-					Persistence: &v1alpha08.PersistenceOptionsSpec{
-						PostgreSQL: &v1alpha08.PersistencePostgreSQL{
-							SecretRef: v1alpha08.PostgreSQLSecretOptions{Name: "dataIndex"},
-							JdbcUrl:   urlDI,
+				DataIndex: &v1alpha08.DataIndexServiceSpec{
+					ServiceSpec: v1alpha08.ServiceSpec{
+						Persistence: &v1alpha08.PersistenceOptionsSpec{
+							PostgreSQL: &v1alpha08.PersistencePostgreSQL{
+								SecretRef: v1alpha08.PostgreSQLSecretOptions{Name: "dataIndex"},
+								JdbcUrl:   urlDI,
+							},
 						},
 					},
 				},
-				JobService: &v1alpha08.ServiceSpec{
-					Persistence: &v1alpha08.PersistenceOptionsSpec{
-						PostgreSQL: &v1alpha08.PersistencePostgreSQL{
-							SecretRef: v1alpha08.PostgreSQLSecretOptions{Name: "job"},
-							JdbcUrl:   urlJS,
+				JobService: &v1alpha08.JobServiceServiceSpec{
+					ServiceSpec: v1alpha08.ServiceSpec{
+						Persistence: &v1alpha08.PersistenceOptionsSpec{
+							PostgreSQL: &v1alpha08.PersistencePostgreSQL{
+								SecretRef: v1alpha08.PostgreSQLSecretOptions{Name: "job"},
+								JdbcUrl:   urlJS,
+							},
 						},
 					},
 				},
@@ -442,7 +456,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		}
 		// Check Data Index deployment to ensure it contains references to the persistence values defined in the platform CR
 		dep := &appsv1.Deployment{}
-		di := services.NewDataIndexHandler(ksp)
+		di := services.NewDataIndexHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: di.GetServiceName(), Namespace: ksp.Namespace}, dep))
 		assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 		assert.Equal(t, di.GetServiceImageName(constants.PersistenceTypePostgreSQL), dep.Spec.Template.Spec.Containers[0].Image)
@@ -451,7 +465,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		assert.Contains(t, dep.Spec.Template.Spec.Containers[0].Env, dbDIPassword)
 		assert.Contains(t, dep.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{Name: "QUARKUS_DATASOURCE_JDBC_URL", Value: urlDI})
 
-		js := services.NewJobServiceHandler(ksp)
+		js := services.NewJobServiceHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: js.GetServiceName(), Namespace: ksp.Namespace}, dep))
 		assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
 		assert.Equal(t, js.GetServiceImageName(constants.PersistenceTypePostgreSQL), dep.Spec.Template.Spec.Containers[0].Image)
@@ -467,7 +481,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		// Create a SonataFlowPlatform object with metadata and spec.
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			JobService: &v1alpha08.ServiceSpec{},
+			JobService: &v1alpha08.JobServiceServiceSpec{},
 		}
 
 		// Create a fake client to mock API calls.
@@ -504,7 +518,7 @@ func TestSonataFlowPlatformController(t *testing.T) {
 
 		// Check data index deployment
 		dep := &appsv1.Deployment{}
-		js := services.NewJobServiceHandler(ksp)
+		js := services.NewJobServiceHandler(context.TODO(), cl, ksp)
 		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: js.GetServiceName(), Namespace: ksp.Namespace}, dep))
 
 		assert.Len(t, dep.Spec.Template.Spec.Containers, 1)
@@ -544,20 +558,21 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		var replicas int32 = 2
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			JobService: &v1alpha08.ServiceSpec{
-				PodTemplate: v1alpha08.PodTemplateSpec{
-					Replicas: &replicas,
-					Container: v1alpha08.ContainerSpec{
-						Command: []string{"test:latest"},
+			JobService: &v1alpha08.JobServiceServiceSpec{
+				ServiceSpec: v1alpha08.ServiceSpec{
+					PodTemplate: v1alpha08.PodTemplateSpec{
+						Replicas: &replicas,
+						Container: v1alpha08.ContainerSpec{
+							Command: []string{"test:latest"},
+						},
 					},
 				},
 			},
 		}
 
-		js := services.NewJobServiceHandler(ksp)
-
 		// Create a fake client to mock API calls.
 		cl := test.NewKogitoClientBuilderWithOpenShift().WithRuntimeObjects(ksp).WithStatusSubresource(ksp).Build()
+		js := services.NewJobServiceHandler(context.TODO(), cl, ksp)
 		// Create a SonataFlowPlatformReconciler object with the scheme and fake client.
 		r := &SonataFlowPlatformReconciler{cl, cl, cl.Scheme(), &rest.Config{}, &record.FakeRecorder{}}
 
@@ -625,14 +640,14 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		// Create a SonataFlowPlatform object with metadata and spec.
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			DataIndex:  &v1alpha08.ServiceSpec{},
-			JobService: &v1alpha08.ServiceSpec{},
+			DataIndex:  &v1alpha08.DataIndexServiceSpec{},
+			JobService: &v1alpha08.JobServiceServiceSpec{},
 		}
 
-		di := services.NewDataIndexHandler(ksp)
-		js := services.NewJobServiceHandler(ksp)
 		// Create a fake client to mock API calls.
 		cl := test.NewKogitoClientBuilderWithOpenShift().WithRuntimeObjects(ksp).WithStatusSubresource(ksp).Build()
+		di := services.NewDataIndexHandler(context.TODO(), cl, ksp)
+		js := services.NewJobServiceHandler(context.TODO(), cl, ksp)
 		// Create a SonataFlowPlatformReconciler object with the scheme and fake client.
 		r := &SonataFlowPlatformReconciler{cl, cl, cl.Scheme(), &rest.Config{}, &record.FakeRecorder{}}
 
@@ -693,8 +708,8 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		// Create a SonataFlowPlatform object with metadata and spec.
 		ksp := test.GetBasePlatformInReadyPhase(namespace)
 		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
-			DataIndex:  &v1alpha08.ServiceSpec{},
-			JobService: &v1alpha08.ServiceSpec{},
+			DataIndex:  &v1alpha08.DataIndexServiceSpec{},
+			JobService: &v1alpha08.JobServiceServiceSpec{},
 		}
 		ksp2 := test.GetBasePlatformInReadyPhase(namespace)
 		ksp2.Name = "ksp2"
@@ -783,12 +798,12 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		assert.NotNil(t, ksp2.Status.ClusterPlatformRef.Services.JobServiceRef)
 		assert.NotEmpty(t, ksp2.Status.ClusterPlatformRef.Services.JobServiceRef.Url)
 
-		psDi := services.NewDataIndexHandler(ksp)
-		psDi2 := services.NewDataIndexHandler(ksp2)
+		psDi := services.NewDataIndexHandler(context.TODO(), cl, ksp)
+		psDi2 := services.NewDataIndexHandler(context.TODO(), cl, ksp2)
 		assert.Equal(t, ksp2.Status.ClusterPlatformRef.Services.DataIndexRef.Url, psDi.GetLocalServiceBaseUrl())
 		assert.Equal(t, psDi.GetLocalServiceBaseUrl()+constants.KogitoProcessInstancesEventsPath, psDi2.GetServiceBaseUrl()+constants.KogitoProcessInstancesEventsPath)
-		psJs := services.NewJobServiceHandler(ksp)
-		psJs2 := services.NewJobServiceHandler(ksp2)
+		psJs := services.NewJobServiceHandler(context.TODO(), cl, ksp)
+		psJs2 := services.NewJobServiceHandler(context.TODO(), cl, ksp2)
 		assert.Equal(t, ksp2.Status.ClusterPlatformRef.Services.JobServiceRef.Url, psJs.GetLocalServiceBaseUrl())
 		assert.Equal(t, psJs.GetLocalServiceBaseUrl()+constants.JobServiceJobEventsPath, psJs2.GetServiceBaseUrl()+constants.JobServiceJobEventsPath)
 
@@ -826,5 +841,87 @@ func TestSonataFlowPlatformController(t *testing.T) {
 		assert.Empty(t, kscp.Spec.Capabilities.Workflows)
 		assert.NotNil(t, ksp2.Status.ClusterPlatformRef)
 		assert.Nil(t, ksp2.Status.ClusterPlatformRef.Services)
+	})
+	t.Run("verify that knative resources creation for job service and data index service is performed without error", func(t *testing.T) {
+		namespace := t.Name()
+		// Create a SonataFlowPlatform object with metadata and spec.
+		ksp := test.GetBasePlatformInReadyPhase(namespace)
+		brokerName := "default"
+		enabled := true
+		broker := &eventingv1.Broker{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      brokerName,
+				Namespace: namespace,
+			},
+		}
+		ksp.Spec.Eventing = &v1alpha08.PlatformEventingSpec{
+			Broker: &v1.Destination{
+				Ref: &v1.KReference{
+					APIVersion: v1.SchemeGroupVersion.Version,
+					Kind:       "Broker",
+					Namespace:  namespace,
+					Name:       brokerName,
+				},
+			},
+		}
+		ksp.Spec.Services = &v1alpha08.ServicesPlatformSpec{
+			DataIndex: &v1alpha08.DataIndexServiceSpec{
+				ServiceSpec: v1alpha08.ServiceSpec{
+					Enabled: &enabled,
+				},
+			},
+			JobService: &v1alpha08.JobServiceServiceSpec{
+				ServiceSpec: v1alpha08.ServiceSpec{
+					Enabled: &enabled,
+				},
+			},
+		}
+
+		// Create a fake client to mock API calls.
+		cl := test.NewKogitoClientBuilderWithOpenShift().WithRuntimeObjects(ksp, broker).WithStatusSubresource(ksp, broker).Build()
+		// Create a SonataFlowPlatformReconciler object with the scheme and fake client.
+		r := &SonataFlowPlatformReconciler{cl, cl, cl.Scheme(), &rest.Config{}, &record.FakeRecorder{}}
+
+		// Mock request to simulate Reconcile() being called on an event for a
+		// watched resource .
+		req := reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      ksp.Name,
+				Namespace: ksp.Namespace,
+			},
+		}
+		_, err := r.Reconcile(context.TODO(), req)
+		if err != nil {
+			t.Fatalf("reconcile: (%v)", err)
+		}
+
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: ksp.Name, Namespace: ksp.Namespace}, ksp))
+
+		// Perform some checks on the created CR
+		assert.Equal(t, "quay.io/kiegroup", ksp.Spec.Build.Config.Registry.Address)
+		assert.Equal(t, "regcred", ksp.Spec.Build.Config.Registry.Secret)
+		assert.Equal(t, v1alpha08.OperatorBuildStrategy, ksp.Spec.Build.Config.BuildStrategy)
+		assert.NotNil(t, ksp.Spec.Services.DataIndex)
+		assert.NotNil(t, ksp.Spec.Services.DataIndex.Enabled)
+		assert.Equal(t, true, *ksp.Spec.Services.DataIndex.Enabled)
+		assert.NotNil(t, ksp.Spec.Services.JobService)
+		assert.NotNil(t, ksp.Spec.Services.JobService.Enabled)
+		assert.Equal(t, true, *ksp.Spec.Services.JobService.Enabled)
+		assert.Equal(t, v1alpha08.PlatformClusterKubernetes, ksp.Status.Cluster)
+
+		assert.Equal(t, "", ksp.Status.GetTopLevelCondition().Reason)
+
+		// Check Triggers
+		trigger := &eventingv1.Trigger{}
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "jobs-service-create-job-trigger", Namespace: ksp.Namespace}, trigger))
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "jobs-service-delete-job-trigger", Namespace: ksp.Namespace}, trigger))
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "data-index-service-jobs-trigger", Namespace: ksp.Namespace}, trigger))
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "data-index-service-processes-definition-trigger", Namespace: ksp.Namespace}, trigger))
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "data-index-service-processes-instance-trigger", Namespace: ksp.Namespace}, trigger))
+
+		// Check SinkBinding
+		sinkBinding := &sourcesv1.SinkBinding{}
+		assert.NoError(t, cl.Get(context.TODO(), types.NamespacedName{Name: "jobs-service-sb", Namespace: ksp.Namespace}, sinkBinding))
+
 	})
 }

@@ -46,6 +46,7 @@ type StateSupport struct {
 	Cfg      *rest.Config
 	Catalog  discovery.ServiceCatalog
 	Recorder record.EventRecorder
+	Context  context.Context
 }
 
 // PerformStatusUpdate updates the SonataFlow Status conditions
@@ -56,7 +57,7 @@ func (s *StateSupport) PerformStatusUpdate(ctx context.Context, workflow *operat
 		return false, err
 	}
 	workflow.Status.ObservedGeneration = workflow.Generation
-	services.SetServiceUrlsInWorkflowStatus(pl, workflow)
+	services.SetServiceUrlsInWorkflowStatus(ctx, s.C, pl, workflow)
 	if err = s.C.Status().Update(ctx, workflow); err != nil {
 		klog.V(log.E).ErrorS(err, "Failed to update Workflow status")
 		return false, err

@@ -27,5 +27,7 @@ Dockerfile
 /.idea/
 /.vscode/
 /target/
+/__debug*
+database/
 
 e2e-test-report.xml
