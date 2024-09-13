@@ -58,7 +58,9 @@ type ObjectEnsurers struct {
 	// kservice Knative Serving deployment for this ensurer. Don't call it directly, use DeploymentByDeploymentModel instead
 	kservice common.ObjectEnsurerWithPlatform
 	// service for this ensurer. Don't call it directly, use ServiceByDeploymentModel instead
-	service               common.ObjectEnsurer
+	service common.ObjectEnsurer
+	// kMetricsService for this ensurer. Don't call it directly, use ServiceByDeploymentModel instead
+	kMetricsService       common.ObjectEnsurer
 	userPropsConfigMap    common.ObjectEnsurer
 	managedPropsConfigMap common.ObjectEnsurerWithPlatform
 }
@@ -74,8 +76,7 @@ func (o *ObjectEnsurers) DeploymentByDeploymentModel(workflow *v1alpha08.SonataF
 // ServiceByDeploymentModel gets the service ensurer based on the SonataFlow deployment model
 func (o *ObjectEnsurers) ServiceByDeploymentModel(workflow *v1alpha08.SonataFlow) common.ObjectEnsurer {
 	if workflow.IsKnativeDeployment() {
-		// Knative Serving handles the service
-		return common.NewNoopObjectEnsurer()
+		return o.kMetricsService
 	}
 	return o.service
 }
@@ -86,6 +87,7 @@ func NewObjectEnsurers(support *common.StateSupport) *ObjectEnsurers {
 		deployment:            common.NewObjectEnsurerWithPlatform(support.C, common.DeploymentCreator),
 		kservice:              common.NewObjectEnsurerWithPlatform(support.C, common.KServiceCreator),
 		service:               common.NewObjectEnsurer(support.C, common.ServiceCreator),
+		kMetricsService:       common.NewObjectEnsurer(support.C, common.KnativeMetricsServiceCreator),
 		userPropsConfigMap:    common.NewObjectEnsurer(support.C, common.UserPropsConfigMapCreator),
 		managedPropsConfigMap: common.NewObjectEnsurerWithPlatform(support.C, common.ManagedPropsConfigMapCreator),
 	}
