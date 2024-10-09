@@ -371,3 +371,26 @@ func getMetricValue(resp string) (string, error) {
 		return "", fmt.Errorf("failed to get metric value")
 	}
 }
+
+func getPodNameAfterWorkflowInstCreation(name, ns string) (string, error) {
+	labels := fmt.Sprintf("sonataflow.org/workflow-app=%s,sonataflow.org/workflow-namespace=%s", name, ns)
+	cmd := exec.Command("kubectl", "get", "pod", "-n", ns, "-l", labels, "-o=jsonpath='{range .items[*]}{.metadata.name} {.status.conditions[?(@.type=='Ready')].status}{';'}{end}'")
+	fmt.Println(cmd.String())
+	out, err := utils.Run(cmd)
+	if err != nil {
+		return "", err
+	}
+	fmt.Println(string(out))
+	data := strings.Split(string(out), ";")
+	for _, line := range data {
+		res := strings.Fields(line)
+		if len(res) == 2 && strings.Contains(res[0], "-00002-deployment-") {
+			if res[1] == "True" {
+				return res[0], nil
+			} else {
+				return "", fmt.Errorf("pod %s is not ready=", res)
+			}
+		}
+	}
+	return "", fmt.Errorf("invalid data received: %s", string(out))
+}

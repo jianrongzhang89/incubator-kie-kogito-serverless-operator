@@ -478,37 +478,47 @@ func ManagedPropsConfigMapCreator(workflow *operatorapi.SonataFlow, platform *op
 // ServiceMonitorCreator is an ObjectsCreator for Service Monitor for the workflow service.
 func ServiceMonitorCreator(workflow *operatorapi.SonataFlow) (client.Object, error) {
 	lbl := workflowproj.GetMergedLabels(workflow)
-	var spec *prometheus.ServiceMonitorSpec
-	if workflow.IsKnativeDeployment() {
-		spec = &prometheus.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					workflowproj.LabelWorkflow:          workflow.Name,
-					workflowproj.LabelWorkflowNamespace: workflow.Namespace,
-				},
+	spec := &prometheus.ServiceMonitorSpec{
+		Selector: metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				workflowproj.LabelWorkflow:          workflow.Name,
+				workflowproj.LabelWorkflowNamespace: workflow.Namespace,
 			},
-			Endpoints: []prometheus.Endpoint{
-				{
-					Port: knativeServicePortName,
-					Path: metricsServicePortPath,
-				},
+		},
+		Endpoints: []prometheus.Endpoint{
+			{
+				Port: k8sServicePortName,
+				Path: metricsServicePortPath,
 			},
-		}
-	} else {
-		spec = &prometheus.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					workflowproj.LabelWorkflow:          workflow.Name,
-					workflowproj.LabelWorkflowNamespace: workflow.Namespace,
-				},
+		},
+	}
+	serviceMonitor := &prometheus.ServiceMonitor{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      workflow.Name,
+			Namespace: workflow.Namespace,
+			Labels:    lbl,
+		},
+		Spec: *spec,
+	}
+	return serviceMonitor, nil
+}
+
+func KnativeServiceMonitorCreator(workflow *operatorapi.SonataFlow) (client.Object, error) {
+	lbl := workflowproj.GetMergedLabels(workflow)
+	spec := &prometheus.ServiceMonitorSpec{
+		Selector: metav1.LabelSelector{
+			MatchLabels: map[string]string{
+				workflowproj.LabelWorkflow:          workflow.Name,
+				workflowproj.LabelWorkflowNamespace: workflow.Namespace,
 			},
-			Endpoints: []prometheus.Endpoint{
-				{
-					Port: k8sServicePortName,
-					Path: metricsServicePortPath,
-				},
+		},
+		Endpoints: []prometheus.Endpoint{
+			{
+				Port:     knativeServicePortName,
+				Path:     metricsServicePortPath,
+				Interval: "10s",
 			},
-		}
+		},
 	}
 	serviceMonitor := &prometheus.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{

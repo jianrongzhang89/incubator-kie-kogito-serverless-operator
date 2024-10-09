@@ -974,7 +974,7 @@ func TestEnsureWorkflowServiceMonitorIsCreatedWhenDeployedAsKnativeService(t *te
 	workflow := test.GetVetEventSonataFlow(t.Name())
 	workflow.Spec.PodTemplate.DeploymentModel = v1alpha08.KnativeDeploymentModel
 	assert.Equal(t, workflow.IsKnativeDeployment(), true)
-	serviceMonitor, err := ServiceMonitorCreator(workflow)
+	serviceMonitor, err := KnativeServiceMonitorCreator(workflow)
 	assert.NoError(t, err)
 	assert.NotNil(t, serviceMonitor)
 	serviceMonitor.SetUID("1")

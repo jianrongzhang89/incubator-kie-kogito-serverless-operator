@@ -30,7 +30,6 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/platform/services"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/common"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/common/constants"
-	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/monitoring"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/utils"
 )
 
@@ -162,11 +161,11 @@ func (d *DeploymentReconciler) ensureObjects(ctx context.Context, workflow *oper
 	}
 	objs = append(objs, eventingObjs...)
 	if pl.Spec.MonitoringEnabled {
-		monitoringObjs, err := monitoring.NewMonitoringHandler(d.StateSupport).Ensure(ctx, workflow)
+		serviceMonitor, _, err := d.ensurers.ServiceMonitorByDeploymentModel(workflow).Ensure(ctx, workflow)
 		if err != nil {
 			return reconcile.Result{}, nil, err
 		}
-		objs = append(objs, monitoringObjs...)
+		objs = append(objs, serviceMonitor)
 	}
 	if deploymentOp == controllerutil.OperationResultCreated {
 		workflow.Status.Manager().MarkFalse(api.RunningConditionType, api.WaitingForDeploymentReason, "")

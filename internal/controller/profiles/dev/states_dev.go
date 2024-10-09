@@ -37,7 +37,6 @@ import (
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/platform"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/common"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/common/constants"
-	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/profiles/monitoring"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/internal/controller/workflowdef"
 	"github.com/apache/incubator-kie-kogito-serverless-operator/log"
 	kubeutil "github.com/apache/incubator-kie-kogito-serverless-operator/utils/kubernetes"
@@ -113,11 +112,11 @@ func (e *ensureRunningWorkflowState) Do(ctx context.Context, workflow *operatora
 	objs = append(objs, service)
 
 	if pl.Spec.MonitoringEnabled {
-		monitoringObjs, err := monitoring.NewMonitoringHandler(e.StateSupport).Ensure(ctx, workflow)
+		serviceMonitor, _, err := e.ensurers.serviceMonitor.Ensure(ctx, workflow)
 		if err != nil {
 			return ctrl.Result{RequeueAfter: constants.RequeueAfterFailure}, objs, err
 		}
-		objs = append(objs, monitoringObjs...)
+		objs = append(objs, serviceMonitor)
 	}
 
 	route, _, err := e.ensurers.network.Ensure(ctx, workflow)

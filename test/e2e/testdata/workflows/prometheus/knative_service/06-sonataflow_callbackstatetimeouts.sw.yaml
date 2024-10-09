@@ -34,12 +34,19 @@ spec:
       serviceRef:
         name: postgres
         databaseName: sonataflow
+  sink:
+    ref:
+      name: sonataflow-broker
+      apiVersion: eventing.knative.dev/v1
+      kind: Broker
+  sources:
+    - eventType: callback_event_type
+      ref:
+        name: sonataflow-broker
+        apiVersion: eventing.knative.dev/v1
+        kind: Broker
   podTemplate:
-    initContainers:
-      - name: init-postgres
-        image: registry.access.redhat.com/ubi9/ubi-minimal:latest
-        imagePullPolicy: IfNotPresent
-        command: [ 'sh', '-c', 'until (echo 1 > /dev/tcp/postgres.$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace).svc.cluster.local/5432) >/dev/null 2>&1; do echo "Waiting for postgres server"; sleep 3; done;' ]
+    deploymentModel: knative
   flow:
     start: PrintStartMessage
     events:
