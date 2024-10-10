@@ -35,9 +35,6 @@ spec:
         name: postgres
         databaseName: sonataflow
   podTemplate:
-    replicas: 0
-    container:
-      image: replaceme
     initContainers:
       - name: init-postgres
         image: registry.access.redhat.com/ubi9/ubi-minimal:latest

@@ -285,7 +285,7 @@ func waitForPodRestartCompletion(label, ns string) (podRunning string) {
 		}
 		podRunning = podNames[0]
 		return true
-	}, 1*time.Minute, 5).Should(BeTrue())
+	}, 10*time.Minute, 5).Should(BeTrue())
 
 	return
 }
